@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>EasyKey Music Converter</title>
+  <link rel="stylesheet" href="./styles.css" />
+  <!-- MIDI parser -->
+  <script src="https://unpkg.com/@tonejs/midi@2.0.28/build/Midi.js"></script>
+  <!-- JSZip for compressed MusicXML (.mxl) -->
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+</head>
+<body>
+  <header>
+    <h1>EasyKey Music Converter provided by People of the World</h1>
+    <div class="actions">
+      <label class="file-btn">
+        <input id="fileInput" type="file" multiple accept=".mid,.midi,.musicxml,.xml,.mxl" />
+        Choose Files
+      </label>
+      <button id="downloadSvgBtn" disabled>Download SVG</button>
+      <button id="downloadJsonBtn" disabled>Download EKJ JSON</button>
+      <button id="clearBtn">Clear</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="panel">
+      <div id="drop" class="drop">
+        <p>Drop MIDI (.mid/.midi) or MusicXML (.musicxml/.xml/.mxl) here, or click “Choose Files”.</p>
+        <p class="hint">Everything runs in your browser • No upload • Classic EasyKey render • Diamonds & sustains • 16th clock-hands</p>
+      </div>
+      <div id="status"></div>
+      <div id="svgWrap" class="svg-wrap"></div>
+    </section>
+  </main>
+
+  <footer>
+    <small>Created using the Visual Music Notation System developed by Shareef Ali Rashada</small>
+  </footer>
+
+  <script src="./app.js"></script>
+</body>
+</html>
