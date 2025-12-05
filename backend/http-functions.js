@@ -18,9 +18,9 @@ const ALLOWED_MODES = ['short', 'long', 'infinite'];
  *   initials: "ALI",
  *   mode: "short" | "long" | "infinite",
  *   correct: number,
- *   totalQuestions: number,
- *   totalTimeMs: number,
- *   avgTimeMs: number
+ *   questions: number,
+ *   totalTime: number,
+ *   avgReaction: number
  * }
  */
 export async function post_decisionGame_saveScore(request) {
@@ -37,7 +37,7 @@ export async function post_decisionGame_saveScore(request) {
       body = JSON.parse(text);
     }
 
-    const { initials, mode, correct, totalQuestions, totalTimeMs, avgTimeMs } = body || {};
+    const { initials, mode, correct, questions, totalTime, avgReaction } = body || {};
 
     if (!mode || !ALLOWED_MODES.includes(mode)) {
       options.body = JSON.stringify({ error: 'Invalid or missing mode' });
@@ -51,23 +51,23 @@ export async function post_decisionGame_saveScore(request) {
 
     if (
       typeof correct !== 'number' ||
-      typeof totalQuestions !== 'number' ||
-      typeof totalTimeMs !== 'number' ||
-      typeof avgTimeMs !== 'number'
+      typeof questions !== 'number' ||
+      typeof totalTime !== 'number' ||
+      typeof avgReaction !== 'number'
     ) {
       options.body = JSON.stringify({ error: 'Score fields must be numbers' });
       return badRequest(options);
     }
 
-    const mistakes = totalQuestions - correct;
+    const mistakes = questions - correct;
 
     const item = {
       initials: initials.toUpperCase().slice(0, 3),
       mode,
       correct,
-      totalQuestions,
-      totalTimeMs,
-      avgTimeMs,
+      questions,
+      totalTime,
+      avgReaction,
       mistakes,
       createdAt: new Date()
     };
@@ -88,13 +88,13 @@ export async function post_decisionGame_saveScore(request) {
  *
  * short/long  sort:
  *   1) fewest mistakes
- *   2) lowest totalTimeMs
- *   3) lowest avgTimeMs
+ *   2) lowest totalTime
+ *   3) lowest avgReaction
  *
  * infinite sort:
  *   1) highest correct
- *   2) lowest avgTimeMs
- *   3) lowest totalTimeMs
+ *   2) lowest avgReaction
+ *   3) lowest totalTime
  */
 export async function get_decisionGame_leaderboard(request) {
   let options = { headers: baseHeaders };
@@ -121,21 +121,21 @@ export async function get_decisionGame_leaderboard(request) {
       items.sort((a, b) => {
         if (a.correct !== b.correct) return b.correct - a.correct;
 
-        if (a.avgTimeMs !== b.avgTimeMs) return a.avgTimeMs - b.avgTimeMs;
+        if (a.avgReaction !== b.avgReaction) return a.avgReaction - b.avgReaction;
 
-        return a.totalTimeMs - b.totalTimeMs;
+        return a.totalTime - b.totalTime;
       });
     } else {
       // short/long: mistakes asc, totalTime asc, avgTime asc
       items.sort((a, b) => {
-        const mistakesA = a.mistakes ?? (a.totalQuestions - a.correct);
-        const mistakesB = b.mistakes ?? (b.totalQuestions - b.correct);
+        const mistakesA = a.mistakes ?? (a.questions - a.correct);
+        const mistakesB = b.mistakes ?? (b.questions - b.correct);
 
         if (mistakesA !== mistakesB) return mistakesA - mistakesB;
 
-        if (a.totalTimeMs !== b.totalTimeMs) return a.totalTimeMs - b.totalTimeMs;
+        if (a.totalTime !== b.totalTime) return a.totalTime - b.totalTime;
 
-        return a.avgTimeMs - b.avgTimeMs;
+        return a.avgReaction - b.avgReaction;
       });
     }
 
@@ -144,9 +144,9 @@ export async function get_decisionGame_leaderboard(request) {
       initials: item.initials,
       mode: item.mode,
       correct: item.correct,
-      totalQuestions: item.totalQuestions,
-      totalTimeMs: item.totalTimeMs,
-      avgTimeMs: item.avgTimeMs,
+      questions: item.questions,
+      totalTime: item.totalTime,
+      avgReaction: item.avgReaction,
       mistakes: item.mistakes
     }));
 
@@ -169,16 +169,16 @@ function isScoreBetter(a, b) {
   if (mode === 'infinite') {
     // Infinite: more correct is better, then lower avg time, then lower total time
     if (a.correct !== b.correct) return a.correct > b.correct;
-    if (a.avgTimeMs !== b.avgTimeMs) return a.avgTimeMs < b.avgTimeMs;
-    return a.totalTimeMs < b.totalTimeMs;
+    if (a.avgReaction !== b.avgReaction) return a.avgReaction < b.avgReaction;
+    return a.totalTime < b.totalTime;
   } else {
     // Short/Long: fewest mistakes, then lowest total time, then lowest avg time
-    const aMistakes = a.totalQuestions - a.correct;
-    const bMistakes = b.totalQuestions - b.correct;
+    const aMistakes = a.questions - a.correct;
+    const bMistakes = b.questions - b.correct;
 
     if (aMistakes !== bMistakes) return aMistakes < bMistakes;
-    if (a.totalTimeMs !== b.totalTimeMs) return a.totalTimeMs < b.totalTimeMs;
-    return a.avgTimeMs < b.avgTimeMs;
+    if (a.totalTime !== b.totalTime) return a.totalTime < b.totalTime;
+    return a.avgReaction < b.avgReaction;
   }
 }
 
@@ -194,12 +194,12 @@ export async function post_decisionGame(request) {
     const bodyText = await request.body.text();
     const data = JSON.parse(bodyText || '{}');
 
-    const { initials, mode, correct, totalQuestions, totalTimeMs, avgTimeMs } = data;
+    const { initials, mode, correct, questions, totalTime, avgReaction } = data;
 
     if (!initials || !mode || typeof correct !== 'number' ||
-        typeof totalQuestions !== 'number' ||
-        typeof totalTimeMs !== 'number' ||
-        typeof avgTimeMs !== 'number') {
+        typeof questions !== 'number' ||
+        typeof totalTime !== 'number' ||
+        typeof avgReaction !== 'number') {
       return badRequest({ body: 'Missing or invalid fields' });
     }
 
@@ -215,9 +215,9 @@ export async function post_decisionGame(request) {
       initials,
       mode,
       correct,
-      totalQuestions,
-      totalTimeMs,
-      avgTimeMs
+      questions,
+      totalTime,
+      avgReaction
     };
 
     if (existing.items.length === 0) {
@@ -229,17 +229,17 @@ export async function post_decisionGame(request) {
         initials: current.initials,
         mode: current.mode,
         correct: current.correct,
-        totalQuestions: current.totalQuestions,
-        totalTimeMs: current.totalTimeMs,
-        avgTimeMs: current.avgTimeMs
+        questions: current.questions,
+        totalTime: current.totalTime,
+        avgReaction: current.avgReaction
       };
 
       if (isScoreBetter(scoreDoc, currentScore)) {
         // New score is better → update existing entry
         current.correct = correct;
-        current.totalQuestions = totalQuestions;
-        current.totalTimeMs = totalTimeMs;
-        current.avgTimeMs = avgTimeMs;
+        current.questions = questions;
+        current.totalTime = totalTime;
+        current.avgReaction = avgReaction;
         await wixData.update(COL, current);
       }
       // If not better, we do nothing (keep best run only)
@@ -285,9 +285,9 @@ export async function get_decisionGame(request) {
       initials: item.initials,
       mode: item.mode,
       correct: item.correct,
-      totalQuestions: item.totalQuestions,
-      totalTimeMs: item.totalTimeMs,
-      avgTimeMs: item.avgTimeMs
+      questions: item.questions,
+      totalTime: item.totalTime,
+      avgReaction: item.avgReaction
     }));
 
     // Sort using the same rules as isScoreBetter
@@ -302,9 +302,9 @@ export async function get_decisionGame(request) {
       rank: idx + 1,
       initials: s.initials,
       correct: s.correct,
-      totalQuestions: s.totalQuestions,
-      totalTimeMs: s.totalTimeMs,
-      avgTimeMs: s.avgTimeMs
+      questions: s.questions,
+      totalTime: s.totalTime,
+      avgReaction: s.avgReaction
     }));
 
     return ok({
@@ -331,16 +331,16 @@ function isScoreBetter(a, b) {
   if (mode === 'infinite') {
     // Infinite: more correct is better, then lower avg time, then lower total time
     if (a.correct !== b.correct) return a.correct > b.correct;
-    if (a.avgTimeMs !== b.avgTimeMs) return a.avgTimeMs < b.avgTimeMs;
-    return a.totalTimeMs < b.totalTimeMs;
+    if (a.avgReaction !== b.avgReaction) return a.avgReaction < b.avgReaction;
+    return a.totalTime < b.totalTime;
   } else {
     // Short/Long: fewest mistakes, then lowest total time, then lowest avg time
-    const aMistakes = a.totalQuestions - a.correct;
-    const bMistakes = b.totalQuestions - b.correct;
+    const aMistakes = a.questions - a.correct;
+    const bMistakes = b.questions - b.correct;
 
     if (aMistakes !== bMistakes) return aMistakes < bMistakes;
-    if (a.totalTimeMs !== b.totalTimeMs) return a.totalTimeMs < b.totalTimeMs;
-    return a.avgTimeMs < b.avgTimeMs;
+    if (a.totalTime !== b.totalTime) return a.totalTime < b.totalTime;
+    return a.avgReaction < b.avgReaction;
   }
 }
 
@@ -356,12 +356,12 @@ export async function post_decisionGame(request) {
     const bodyText = await request.body.text();
     const data = JSON.parse(bodyText || '{}');
 
-    const { initials, mode, correct, totalQuestions, totalTimeMs, avgTimeMs } = data;
+    const { initials, mode, correct, questions, totalTime, avgReaction } = data;
 
     if (!initials || !mode || typeof correct !== 'number' ||
-        typeof totalQuestions !== 'number' ||
-        typeof totalTimeMs !== 'number' ||
-        typeof avgTimeMs !== 'number') {
+        typeof questions !== 'number' ||
+        typeof totalTime !== 'number' ||
+        typeof avgReaction !== 'number') {
       return badRequest({ body: 'Missing or invalid fields' });
     }
 
@@ -377,9 +377,9 @@ export async function post_decisionGame(request) {
       initials,
       mode,
       correct,
-      totalQuestions,
-      totalTimeMs,
-      avgTimeMs
+      questions,
+      totalTime,
+      avgReaction
     };
 
     if (existing.items.length === 0) {
@@ -391,17 +391,17 @@ export async function post_decisionGame(request) {
         initials: current.initials,
         mode: current.mode,
         correct: current.correct,
-        totalQuestions: current.totalQuestions,
-        totalTimeMs: current.totalTimeMs,
-        avgTimeMs: current.avgTimeMs
+        questions: current.questions,
+        totalTime: current.totalTime,
+        avgReaction: current.avgReaction
       };
 
       if (isScoreBetter(scoreDoc, currentScore)) {
         // New score is better → update existing entry
         current.correct = correct;
-        current.totalQuestions = totalQuestions;
-        current.totalTimeMs = totalTimeMs;
-        current.avgTimeMs = avgTimeMs;
+        current.questions = questions;
+        current.totalTime = totalTime;
+        current.avgReaction = avgReaction;
         await wixData.update(COL, current);
       }
       // If not better, we do nothing (keep best run only)
@@ -447,9 +447,9 @@ export async function get_decisionGame(request) {
       initials: item.initials,
       mode: item.mode,
       correct: item.correct,
-      totalQuestions: item.totalQuestions,
-      totalTimeMs: item.totalTimeMs,
-      avgTimeMs: item.avgTimeMs
+      questions: item.questions,
+      totalTime: item.totalTime,
+      avgReaction: item.avgReaction
     }));
 
     // Sort using the same rules as isScoreBetter
@@ -464,9 +464,9 @@ export async function get_decisionGame(request) {
       rank: idx + 1,
       initials: s.initials,
       correct: s.correct,
-      totalQuestions: s.totalQuestions,
-      totalTimeMs: s.totalTimeMs,
-      avgTimeMs: s.avgTimeMs
+      questions: s.questions,
+      totalTime: s.totalTime,
+      avgReaction: s.avgReaction
     }));
 
     return ok({
