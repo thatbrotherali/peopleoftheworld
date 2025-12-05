@@ -23,6 +23,10 @@ const ALLOWED_MODES = ['short', 'long', 'infinite'];
  *   avgReaction: number
  * }
  */
+export function get_hello(request) {
+  return ok({ body: "Hello world!" });
+}
+
 export async function post_decisionGame_saveScore(request) {
   let options = { headers: baseHeaders };
 
