@@ -2,179 +2,251 @@
 import { ok, badRequest, notFound, serverError } from 'wix-http-functions';
 import wixData from 'wix-data';
 
+// Name of your Data Collection in Wix
 const COLLECTION = 'DecisionGameScores';
 
-// ---------------------------------------------
-// Score Comparison Helper
-// ---------------------------------------------
+// Basic headers + CORS so external origins (e.g. GitHub Pages) can call this API
+const baseHeaders = {
+  'Content-Type': 'application/json',
+  'Access-Control-Allow-Origin': '*'
+};
+
+// Allowed game modes
+const ALLOWED_MODES = ['short', 'long', 'infinite'];
+
+/**
+ * Helper: compare scores to see if "a" is better than "b"
+ * Uses the agreed ranking rules:
+ *
+ * short/long:
+ *   1) fewer mistakes (totalQuestions - correct)
+ *   2) lower totalTimeMs
+ *   3) lower avgTimeMs
+ *
+ * infinite:
+ *   1) higher correct
+ *   2) lower avgTimeMs
+ *   3) lower totalTimeMs
+ */
 function isScoreBetter(a, b) {
   const mode = a.mode;
 
   if (mode === 'infinite') {
-    // Infinite mode ranking:
-    // 1) Higher correct
-    // 2) Lower avgReaction
-    // 3) Lower totalTime
+    // Infinite: more correct is better, then lower avg time, then lower total time
     if (a.correct !== b.correct) return a.correct > b.correct;
-    if (a.avgReaction !== b.avgReaction) return a.avgReaction < b.avgReaction;
-    return a.totalTime < b.totalTime;
-
+    if (a.avgTimeMs !== b.avgTimeMs) return a.avgTimeMs < b.avgTimeMs;
+    return a.totalTimeMs < b.totalTimeMs;
   } else {
-    // Short & Long:
-    // 1) Fewer mistakes
-    // 2) Lower totalTime
-    // 3) Lower avgReaction
-    const aMistakes = a.questions - a.correct;
-    const bMistakes = b.questions - b.correct;
+    // Short/Long: fewest mistakes, then lowest total time, then lowest avg time
+    const aMistakes = a.totalQuestions - a.correct;
+    const bMistakes = b.totalQuestions - b.correct;
 
     if (aMistakes !== bMistakes) return aMistakes < bMistakes;
-    if (a.totalTime !== b.totalTime) return a.totalTime < b.totalTime;
-    return a.avgReaction < b.avgReaction;
+    if (a.totalTimeMs !== b.totalTimeMs) return a.totalTimeMs < b.totalTimeMs;
+    return a.avgTimeMs < b.avgTimeMs;
   }
 }
 
-// =============================================================
-// POST  /_functions/decisionGame/saveScore
-// =============================================================
+/**
+ * POST /_functions/decisionGame/saveScore
+ *
+ * Body JSON:
+ * {
+ *   "initials": "ALI",
+ *   "mode": "short" | "long" | "infinite",
+ *   "correct": number,
+ *   "totalQuestions": number,
+ *   "totalTimeMs": number,
+ *   "avgTimeMs": number
+ * }
+ *
+ * Behavior:
+ * - Validates input
+ * - For each (initials, mode) pair, only keeps the BEST score
+ *   according to isScoreBetter(...)
+ */
 export async function post_decisionGame(request) {
-  const subPath = request.path?.[0] || "";
+  const pathSeg = (request.path && request.path[0]) || '';
 
-  if (subPath !== "saveScore") {
-    return notFound({ body: "Unknown endpoint" });
+  // We only handle /_functions/decisionGame/saveScore here
+  if (pathSeg !== 'saveScore') {
+    return notFound({
+      headers: baseHeaders,
+      body: JSON.stringify({ error: 'Unknown endpoint' })
+    });
   }
 
   try {
     const bodyText = await request.body.text();
-    const data = JSON.parse(bodyText || "{}");
+    const data = JSON.parse(bodyText || '{}');
 
-    const { initials, mode, correct, questions, totalTime, avgReaction } = data;
+    const {
+      initials,
+      mode,
+      correct,
+      totalQuestions,
+      totalTimeMs,
+      avgTimeMs
+    } = data;
 
-    if (!initials || !mode) {
-      return badRequest({ body: "Initials and mode are required." });
+    // Basic validation
+    if (!initials || typeof initials !== 'string') {
+      return badRequest({
+        headers: baseHeaders,
+        body: JSON.stringify({ error: 'Initials are required' })
+      });
     }
-    if (typeof correct !== "number" ||
-        typeof questions !== "number" ||
-        typeof totalTime !== "number" ||
-        typeof avgReaction !== "number") {
-      return badRequest({ body: "Numeric fields missing or invalid." });
+
+    if (!mode || !ALLOWED_MODES.includes(mode)) {
+      return badRequest({
+        headers: baseHeaders,
+        body: JSON.stringify({ error: 'Invalid or missing mode' })
+      });
     }
 
-    // Restrict valid modes
-    if (!["short", "long", "infinite"].includes(mode)) {
-      return badRequest({ body: "Invalid mode." });
+    if (
+      typeof correct !== 'number' ||
+      typeof totalQuestions !== 'number' ||
+      typeof totalTimeMs !== 'number' ||
+      typeof avgTimeMs !== 'number'
+    ) {
+      return badRequest({
+        headers: baseHeaders,
+        body: JSON.stringify({ error: 'Score fields must be numbers' })
+      });
     }
 
-    // Check if score exists for initials+mode
+    const normalizedInitials = initials.toUpperCase().slice(0, 3);
+
+    // Check if we already have a score for this initials+mode
     const existing = await wixData.query(COLLECTION)
-      .eq("initials", initials.toUpperCase())
-      .eq("mode", mode)
+      .eq('initials', normalizedInitials)
+      .eq('mode', mode)
       .find();
 
     const newScore = {
-      initials: initials.toUpperCase().slice(0,3),
+      initials: normalizedInitials,
       mode,
       correct,
-      questions,
-      totalTime,
-      avgReaction
+      totalQuestions,
+      totalTimeMs,
+      avgTimeMs
     };
 
     if (existing.items.length === 0) {
-      // First time score
-      await wixData.insert(COLLECTION, newScore);
+      // No existing score: insert new
+      await wixData.insert(COLLECTION, {
+        ...newScore,
+        createdAt: new Date()
+      });
     } else {
-      // Compare to existing score
-      const old = existing.items[0];
-      const oldScore = {
-        initials: old.initials,
-        mode: old.mode,
-        correct: old.correct,
-        questions: old.questions,
-        totalTime: old.totalTime,
-        avgReaction: old.avgReaction
+      const current = existing.items[0];
+      const currentScore = {
+        initials: current.initials,
+        mode: current.mode,
+        correct: current.correct,
+        totalQuestions: current.totalQuestions,
+        totalTimeMs: current.totalTimeMs,
+        avgTimeMs: current.avgTimeMs
       };
 
-      if (isScoreBetter(newScore, oldScore)) {
-        // Replace with better score
-        old.correct = correct;
-        old.questions = questions;
-        old.totalTime = totalTime;
-        old.avgReaction = avgReaction;
-        await wixData.update(COLLECTION, old);
+      if (isScoreBetter(newScore, currentScore)) {
+        // New score is better → update existing entry
+        current.correct = correct;
+        current.totalQuestions = totalQuestions;
+        current.totalTimeMs = totalTimeMs;
+        current.avgTimeMs = avgTimeMs;
+        current.updatedAt = new Date();
+        await wixData.update(COLLECTION, current);
       }
-      // If not better → do nothing
+      // If not better, we do nothing (keep best run only)
     }
 
     return ok({
-      headers: { "Content-Type": "application/json" },
+      headers: baseHeaders,
       body: JSON.stringify({ success: true })
     });
 
   } catch (err) {
-    console.error("Error in saveScore:", err);
+    console.error('Error in saveScore:', err);
     return serverError({
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ error: "Internal error" })
+      headers: baseHeaders,
+      body: JSON.stringify({ error: 'Internal error', details: String(err) })
     });
   }
 }
 
-// =============================================================
-// GET /_functions/decisionGame/leaderboard?mode=short|long|infinite
-// =============================================================
+/**
+ * GET /_functions/decisionGame/leaderboard?mode=short|long|infinite
+ *
+ * Returns top 100 scores for given mode, sorted by the same rules
+ * as isScoreBetter (best → worst).
+ */
 export async function get_decisionGame(request) {
-  const subPath = request.path?.[0] || "";
+  const pathSeg = (request.path && request.path[0]) || '';
 
-  if (subPath !== "leaderboard") {
-    return notFound({ body: "Unknown endpoint" });
+  // We only handle /_functions/decisionGame/leaderboard here
+  if (pathSeg !== 'leaderboard') {
+    return notFound({
+      headers: baseHeaders,
+      body: JSON.stringify({ error: 'Unknown endpoint' })
+    });
   }
 
   try {
-    const modeRaw = request.query?.mode || "short";
-    const mode = ["short", "long", "infinite"].includes(modeRaw.toLowerCase())
-      ? modeRaw.toLowerCase()
-      : "short";
+    const rawMode = request.query.mode || 'short';
+    const mode = rawMode.toLowerCase();
+
+    if (!ALLOWED_MODES.includes(mode)) {
+      return badRequest({
+        headers: baseHeaders,
+        body: JSON.stringify({
+          error: 'mode query param must be "short", "long", or "infinite"'
+        })
+      });
+    }
 
     const result = await wixData.query(COLLECTION)
-      .eq("mode", mode)
-      .limit(1000)
+      .eq('mode', mode)
+      .limit(1000) // enough to sort/slice
       .find();
 
-    let scores = result.items.map(s => ({
-      initials: s.initials,
-      mode: s.mode,
-      correct: s.correct,
-      questions: s.questions,
-      totalTime: s.totalTime,
-      avgReaction: s.avgReaction
+    let scores = (result.items || []).map(item => ({
+      initials: item.initials,
+      mode: item.mode,
+      correct: item.correct,
+      totalQuestions: item.totalQuestions,
+      totalTimeMs: item.totalTimeMs,
+      avgTimeMs: item.avgTimeMs
     }));
 
-    // Sort in descending "better first" order
+    // Sort using isScoreBetter logic (descending "goodness")
     scores.sort((a, b) => {
       if (isScoreBetter(a, b)) return -1;
       if (isScoreBetter(b, a)) return 1;
       return 0;
     });
 
-    const top100 = scores.slice(0, 100).map((s, index) => ({
-      rank: index + 1,
+    // Top 100 with rank
+    const top = scores.slice(0, 100).map((s, idx) => ({
+      rank: idx + 1,
       initials: s.initials,
       correct: s.correct,
-      questions: s.questions,
-      totalTime: s.totalTime,
-      avgReaction: s.avgReaction
+      totalQuestions: s.totalQuestions,
+      totalTimeMs: s.totalTimeMs,
+      avgTimeMs: s.avgTimeMs
     }));
 
     return ok({
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mode, results: top100 })
+      headers: baseHeaders,
+      body: JSON.stringify({ mode, results: top })
     });
 
   } catch (err) {
-    console.error("Error in leaderboard:", err);
+    console.error('Error in leaderboard:', err);
     return serverError({
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ error: "Internal error" })
+      headers: baseHeaders,
+      body: JSON.stringify({ error: 'Internal error', details: String(err) })
     });
   }
 }
